@@ -32,17 +32,14 @@ thisdir="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 webhook_file="${thisdir}/.webhook"
 
 help_text="Usage: discord.sh --webhook-url=<url> [OPTIONS]
-
 General options:
   --help                         Display this help and exit
   --text <text>                  Body text of message to send
   --tts                          Send message with text-to-speech enabled
   --webhook-url                  Specify the Discord webhook URL
-
 Identity options:
   --username <name>              Set username to <name>
   --avatar <url>                 Set avatar to image located at <url>
-
 Embedded content options:
   Main:
     --title <title>              Display embed title as <title>
@@ -53,17 +50,14 @@ Embedded content options:
         Option 1: 0x<hexadecimal number> (Example: --color 0xFFFFF)
         Option 2: <decimal number> (Example: --color 16777215)
     --thumbnail <url>            Set thumbnail to image located at <url>
-
   Author:
     --author <name>                Display author name as <name>
     --author-icon <url>            Display author icon as image located at <url>
     --author-url <url>             Set author title to go to <url> when clicked
-
   Image:
     --image <url>                  Set image to image located at <url>
     --image-height <number>        Set image height to <number> pixels
     --image-width <number>         Set image width to <number> pixels
-
   Fields:
     --field <name,value,inline>  Add field to embed
         Example: --field \"CPU;95%;false\"
@@ -72,7 +66,6 @@ Embedded content options:
             name: string
             value: string
             inline: boolean (default: true) (optional)
-
   Footer:
     --footer <text>                Display <text> in footer
     --footer-icon <url>            Display image located at <url> in footer
@@ -110,8 +103,8 @@ build_fields() {
 # gather arguments
 while (( "$#" )); do
     case "${1}"  in
-	--help) echo "$help_text" && exit 0;;
-	-h) echo "$help_text" && exit 0;;
+        --help) echo "$help_text" && exit 0;;
+        -h) echo "$help_text" && exit 0;;
 
         --dry-run) is_dry=1; shift;;
         --tts) is_tts=1; shift;;
@@ -371,10 +364,19 @@ send()
 
      _result=$(echo "${_result}" | jq '.')
 
-    # if we have a result, there was a problem. echo and exit.
+    # if we dont have a result, there was a problem or it was rate limited. sleep, retry and exit.
     [[ -n "${_result}" ]] && \
-        echo error! "${_result}" && \
-        echo attempted to send: "$(echo "${_sendme}" | jq '.')" && \
+        echo "${_result}" && \
+        
+        #sleeping for the required time
+        echo "${_result}" | jq -r '.retry_after' | while read line ; do awk "BEGIN {print (${line})/1000}" | while read line2 ; do sleep "${line2}" && echo sleeping for "${line2}" ; done ; done && \
+
+        #Attempting to send again after sleeping
+        _result=$(curl -H "Content-Type: application/json" -H "Expect: application/json" -X POST "${webhook_url}" -d "${_sendme}" 2>/dev/null) && \
+        send_ok=$? && \
+        [[ "${send_ok}" -ne 0 ]] && echo "fatal: curl failed with code ${send_ok}" && exit $send_ok
+        _result=$(echo "${_result}" | jq '.')
+
         exit 1
 
     exit 0
@@ -396,7 +398,7 @@ send_file() {
         curl -i \
             -F "file=@${file_path}" \
             -F "${_json}" \
-            "localhost:8000" 
+            "localhost:8000"
         exit 0
     fi
 
@@ -410,8 +412,9 @@ send_file() {
         -F "payload_json=${_json}" \
         "${webhook_url}" >/dev/null 2>&1
 
-    # error checking 
-
+    # error checking
+    
+    
     sent_ok=$?
     [[ "${sent_ok}" -eq 0 ]] && exit 0
 
